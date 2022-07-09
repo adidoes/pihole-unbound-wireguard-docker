@@ -1,0 +1,71 @@
+version: "3"
+
+services:
+  pihole:
+    container_name: pihole
+    image: jacklul/pihole:latest
+    hostname: pihole
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "67:67/udp"
+      - "8081:80/tcp"
+    environment:
+      - WEBPASSWORD=$PIHOLE_WEBPASSWORD
+      - PIHOLE_DNS_=10.2.0.20
+    volumes:
+      - "/home/pi/config/wirehole/etc-pihole/:/etc/pihole/"
+      - "/home/pi/config/wirehole/etc-dnsmasq.d/:/etc/dnsmasq.d/"
+      - '/home/pi/config/wirehole/etc-pihole-updatelists/:/etc/pihole-updatelists/'
+    networks:
+      wirehole_net:
+        ipv4_address: 10.2.0.10
+    restart: unless-stopped
+
+  unbound:
+    container_name: unbound
+    image: mvance/unbound-rpi:latest
+    hostname: unbound
+    networks:
+      wirehole_net:
+        ipv4_address: 10.2.0.20
+    restart: unless-stopped
+
+  wireguard:
+    depends_on: [unbound, pihole]
+    image: linuxserver/wireguard:latest
+    container_name: wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Luxembourg # Change to your timezone
+      - SERVERPORT=51820
+      - SERVERURL=$WIREGUARD_SERVERURL # optional - For use with DDNS (Uncomment to use)
+      - PEERS=$WIREGUARD_PEERS # How many peers to generate for you (clients)
+      - PEERDNS=10.2.0.10 # Set it to point to pihole
+      - INTERNAL_SUBNET=10.6.0.0
+
+    volumes:
+      - /home/pi/config/wirehole/wireguard:/config
+      - /lib/modules:/lib/modules
+    ports:
+      - "51820:51820/udp"
+    dns:
+      - 10.2.0.10 # Points to pihole
+      - 10.2.0.20 # Points to unbound
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    networks:
+      wirehole_net:
+        ipv4_address: 10.2.0.30
+
+networks:
+  wirehole_net:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.2.0.0/24
